@@ -175,9 +175,17 @@ try {
         # With this start's switches (the translations depend on them); its lines go to the log too.
         Write-Host 'Preloading shaders before the game starts. This takes a while (see the lines below).'
         $began = Get-Date
-        # (Split-Path -LiteralPath with -Parent: no such parameter set in Windows PowerShell 5.1.)
-        & $victory preload ([IO.Path]::GetDirectoryName($Exe)) 2>&1 | ForEach-Object { $line = "$_"; $writer.WriteLine("# preload: $line"); $line }
-        $how = if ($LASTEXITCODE -eq 0) { 'done' } else { "ended with code $LASTEXITCODE" }
+        # Pipeline warm-up is still exhaustive; below-normal priority avoids Windows treating it as idle-only work.
+        $oldWarmPriority = $env:VICTORY_WARM_PRIORITY
+        $env:VICTORY_WARM_PRIORITY = 'below-normal'
+        try {
+            & $victory preload ([IO.Path]::GetDirectoryName($Exe)) 2>&1 | ForEach-Object { $line = "$_"; $writer.WriteLine("# preload: $line"); $line }
+            $preloadExit = $LASTEXITCODE
+        } finally {
+            if ($null -eq $oldWarmPriority) { Remove-Item Env:VICTORY_WARM_PRIORITY -ErrorAction SilentlyContinue }
+            else { $env:VICTORY_WARM_PRIORITY = $oldWarmPriority }
+        }
+        $how = if ($preloadExit -eq 0) { 'done' } else { "ended with code $preloadExit" }
         $said = 'Preload {0} after {1:N1} min. Starting the game.' -f $how, ((Get-Date) - $began).TotalMinutes
         $writer.WriteLine("# $said"); Write-Host $said
     }

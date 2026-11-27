@@ -201,12 +201,19 @@ fn child(these: &[usize], mut each: impl FnMut(usize, f64, bool)) -> (usize, Opt
     let spawned = std::env::current_exe().and_then(|exe| {
         use std::os::windows::process::CommandExt;
         const IDLE_PRIORITY_CLASS: u32 = 0x40;
+        const NORMAL_PRIORITY_CLASS: u32 = 0x20;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x4000;
+        let priority = match std::env::var("VICTORY_WARM_PRIORITY").as_deref() {
+            Ok("normal") => NORMAL_PRIORITY_CLASS,
+            Ok("below-normal") => BELOW_NORMAL_PRIORITY_CLASS,
+            _ => IDLE_PRIORITY_CLASS,
+        };
         Command::new(exe)
             .args(["warm", "--these", &list.join(",")])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .creation_flags(IDLE_PRIORITY_CLASS)
+            .creation_flags(priority)
             .spawn()
     });
     let Ok(mut process) = spawned else { return (these.len(), None) };

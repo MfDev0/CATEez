@@ -302,7 +302,7 @@ delete that file to go back to them. Full screen: start the game, then run
 
 ## CATEez Windows launcher
 
-Download `CATEez-Launcher-v1.2.exe` from the [CATEez v1.2 release](https://github.com/MfDev0/CATEez/releases/tag/v1.2).
+Download `CATEez-Launcher-v1.3.exe` from the [CATEez v1.3 release](https://github.com/MfDev0/CATEez/releases/tag/v1.3).
 Press **U** at startup to refresh the latest project package and replace the launcher with a newer
 published EXE when one is available. It remembers your game dump EXE path under `%LOCALAPPDATA%\CATEez`,
 and lets you press C at the saved-path prompt to change it. Its default launch is Series S, DLSS Performance,
@@ -310,8 +310,11 @@ and lets you press C at the saved-path prompt to change it. Its default launch i
 generation by the project/driver. F1 opens the settings menu; use arrows and Enter.
 
 At the end of a run, a report ZIP is saved under `Downloads\VIctory-reports` with the full run log,
-shader/pipeline lines and text pipeline lists, recent crash logs, settings, and system details. Shader preloading
-can take a while the first time; the project's cache keeps progress for later runs.
+shader/pipeline lines and text pipeline lists, recent crash logs, settings, and system details. The first
+complete pipeline warm-up can be very long: it asks the graphics driver to build every recorded pipeline.
+Work is saved after each pipeline and resumes when interrupted; completed pipelines are skipped for the same
+build, driver, and executable path. Project updates keep a stable install path so a launcher-only update does
+not needlessly invalidate that work. A new translator build or graphics driver can still require a fresh warm-up.
 
 ## Credits
 

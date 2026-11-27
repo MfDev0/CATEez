@@ -1,8 +1,9 @@
 $ErrorActionPreference = 'Stop'
-$launcherVersion = 'v1.2'
+$launcherVersion = 'v1.3'
 $repoApi = 'https://api.github.com/repos/MfDev0/CATEez/releases/latest'
 $installRoot = Join-Path $env:LOCALAPPDATA 'CATEez\projects'
 $pathFile = Join-Path $env:LOCALAPPDATA 'CATEez\game-exe-path.txt'
+$activeProjectFile = Join-Path $env:LOCALAPPDATA 'CATEez\active-project-path.txt'
 $tempRoot = $null
 $forceProjectUpdate = $false
 $exitForUpdate = $false
@@ -88,7 +89,36 @@ exit 1
         }
     }
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-    $projectRoot = Join-Path $installRoot $projectVersion
+    $projectRoot = $null
+    $installPrefix = [IO.Path]::GetFullPath($installRoot).TrimEnd('\') + '\'
+    if (Test-Path -LiteralPath $activeProjectFile -PathType Leaf) {
+        $savedProjectRoot = [IO.File]::ReadAllText($activeProjectFile).Trim()
+        if ($savedProjectRoot) {
+            $savedProjectRoot = [IO.Path]::GetFullPath($savedProjectRoot)
+            if ($savedProjectRoot.StartsWith($installPrefix, [StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $savedProjectRoot -PathType Container)) {
+                $projectRoot = $savedProjectRoot
+            }
+        }
+    }
+    if (-not $projectRoot) {
+        $installed = foreach ($candidate in Get-ChildItem -LiteralPath $installRoot -Directory -ErrorAction SilentlyContinue) {
+            $marker = Join-Path $candidate.FullName '.catez-version'
+            $candidateEngine = Join-Path $candidate.FullName 'target\release\victory.exe'
+            $candidateRunner = Join-Path $candidate.FullName 'scripts\play-nvidia.ps1'
+            if ((Test-Path -LiteralPath $marker -PathType Leaf) -and
+                (Test-Path -LiteralPath $candidateEngine -PathType Leaf) -and
+                (Test-Path -LiteralPath $candidateRunner -PathType Leaf)) {
+                $tag = [IO.File]::ReadAllText($marker).Trim()
+                $version = $null
+                try { $version = [version]($tag.TrimStart('v')) } catch { }
+                if ($version) { [pscustomobject]@{ Path = $candidate.FullName; Version = $version } }
+            }
+        }
+        $latestInstalled = $installed | Sort-Object Version -Descending | Select-Object -First 1
+        if ($latestInstalled) { $projectRoot = $latestInstalled.Path }
+        else { $projectRoot = Join-Path $installRoot 'current' }
+    }
     $versionFile = Join-Path $projectRoot '.catez-version'
     $runner = Join-Path $projectRoot 'scripts\play-nvidia.ps1'
     $engine = Join-Path $projectRoot 'target\release\victory.exe'
@@ -123,6 +153,8 @@ exit 1
     } else {
         Write-Host ('Project version already installed: {0}' -f $installedVersion)
     }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $activeProjectFile) -Force | Out-Null
+    [IO.File]::WriteAllText($activeProjectFile, $projectRoot, [System.Text.UTF8Encoding]::new($false))
 
     $gamePath = ''
     if (Test-Path -LiteralPath $pathFile -PathType Leaf) {
