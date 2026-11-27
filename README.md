@@ -312,9 +312,12 @@ generation by the project/driver. F1 opens the settings menu; use arrows and Ent
 At the end of a run, a report ZIP is saved under `Downloads\VIctory-reports` with the full run log,
 shader/pipeline lines and text pipeline lists, recent crash logs, settings, and system details. The first
 complete pipeline warm-up can be very long: it asks the graphics driver to build every recorded pipeline.
-Work is saved after each pipeline and resumes when interrupted; completed pipelines are skipped for the same
-build, driver, and executable path. Project updates keep a stable install path so a launcher-only update does
-not needlessly invalidate that work. A new translator build or graphics driver can still require a fresh warm-up.
+Work is saved after each completed pipeline and resumes when interrupted; failed worker batches are retried on
+the next preload instead of being treated as completed. Pipeline workers are capped at four by default to
+reduce driver/compiler memory pressure; set `VICTORY_WARM_JOBS` to override this, or use `victory warm --jobs`.
+Completed pipelines are skipped for the same build, driver, and executable path. Project updates keep a stable
+install path so a launcher-only update does not needlessly invalidate that work. A new translator build or
+graphics driver can still require a fresh warm-up.
 
 ## Credits
 

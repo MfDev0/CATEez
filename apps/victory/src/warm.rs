@@ -20,6 +20,24 @@ const LONGEST: Duration = Duration::from_secs(180);
 
 /// As the runs count one that takes long.
 const SLOW_MS: f64 = 1000.0;
+/// Keep pipeline compiler workers bounded by default: each worker owns a D3D12
+/// device and driver compiler state. Override with `VICTORY_WARM_JOBS` or `--jobs`.
+const DEFAULT_MAX_JOBS: usize = 4;
+
+fn automatic_jobs(cores: usize) -> usize {
+    (cores.saturating_mul(2) / 3).clamp(1, DEFAULT_MAX_JOBS)
+}
+
+fn default_jobs() -> usize {
+    if let Ok(value) = std::env::var("VICTORY_WARM_JOBS")
+        && let Ok(jobs) = value.parse::<usize>()
+        && jobs > 0
+    {
+        return jobs;
+    }
+    let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+    automatic_jobs(cores)
+}
 
 fn folder() -> Result<PathBuf> {
     let cfg = victory_core::Config::load()?;
@@ -57,25 +75,40 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
         }
     }
     let bad = std::fs::read_to_string(&bad_file).unwrap_or_default();
-    let bad: HashSet<&str> = bad.lines().filter_map(|l| l.split(' ').next()).collect();
+    let bad_count = bad.lines().filter(|line| !line.trim().is_empty()).count();
     let early = std::fs::read_to_string(dir.join("early-pipelines.txt")).unwrap_or_default();
     let early: HashSet<&str> = early.lines().collect();
     // Those earlier runs drew with first, the others in no order (by key).
     let mut all: Vec<usize> = (0..keys.len())
         .filter(|&n| {
             let key = keys[n].as_str();
-            (again || !done.contains(key)) && !bad.contains(key) && (!used || early.contains(key))
+            (again || !done.contains(key)) && (!used || early.contains(key))
         })
         .collect();
     all.sort_by_key(|&n| (!early.contains(keys[n].as_str()), &keys[n]));
     all.truncate(limit.unwrap_or(usize::MAX));
-    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let jobs = jobs.unwrap_or(cores * 2 / 3).max(1);
+    // Prior worker failures are transient until proven otherwise. Retry them,
+    // but keep failures outside a limited run listed for the library pass.
+    let selected: HashSet<&str> = all.iter().map(|&n| keys[n].as_str()).collect();
+    let still_bad = bad
+        .lines()
+        .filter(|line| {
+            let key = line.split(' ').next().unwrap_or_default();
+            !key.is_empty() && !selected.contains(key)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let still_bad = if still_bad.is_empty() {
+        still_bad
+    } else {
+        format!("{still_bad}\n")
+    };
+    std::fs::write(&bad_file, still_bad)?;
+    let jobs = jobs.unwrap_or_else(default_jobs).max(1);
     println!(
-        "{} pipelines known, {} made before ({fingerprint}), {} bad; {} to make, {jobs} processes",
+        "{} pipelines known, {} made before ({fingerprint}), {bad_count} previously failed; {} to make, {jobs} processes",
         keys.len(),
         done.len(),
-        bad.len(),
         all.len()
     );
     let chunks: Vec<&[usize]> = all.chunks(AT_ONCE).collect();
@@ -99,7 +132,7 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
                             state.0.push(ms);
                             state.1 += usize::from(!there);
                             let count = state.0.len();
-                            if count % 1000 == 0 {
+                            if count % 100 == 0 {
                                 println!("{count} of {}, {:.0} s", all.len(), began.elapsed().as_secs_f64());
                             }
                             drop(state);
@@ -166,7 +199,7 @@ pub fn into_library(jobs: Option<usize>) -> Result<()> {
         })
         .collect();
     all.sort_by_key(|&n| (!early.contains(keys[n].as_str()), &keys[n]));
-    let threads = jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()) * 2 / 3).max(1);
+    let threads = jobs.unwrap_or_else(default_jobs).max(1);
     println!("into the pipeline library: {} pipelines (loading and slow ones), {threads} threads", all.len());
     let began = Instant::now();
     let (count, made) = (AtomicUsize::new(0), AtomicUsize::new(0));
@@ -179,7 +212,7 @@ pub fn into_library(jobs: Option<usize>) -> Result<()> {
                     let Some((_, there)) = came else { return };
                     made.fetch_add(usize::from(there), Ordering::Relaxed);
                     let n = count.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n.is_multiple_of(500) {
+                    if n.is_multiple_of(100) {
                         println!("{n} of {total} in the library, {:.0} s", began.elapsed().as_secs_f64());
                     }
                 });
@@ -221,8 +254,12 @@ fn child(these: &[usize], mut each: impl FnMut(usize, f64, bool)) -> (usize, Opt
             .creation_flags(priority)
             .spawn()
     });
-    let Ok(mut process) = spawned else { return (these.len(), None) };
-    let Some(out) = process.stdout.take() else { return (these.len(), None) };
+    let Ok(mut process) = spawned else {
+        return (0, Some("could not start pipeline worker".into()));
+    };
+    let Some(out) = process.stdout.take() else {
+        return (0, Some("pipeline worker has no output stream".into()));
+    };
     let process = Mutex::new(process);
     let (heard, over) = (Mutex::new(Instant::now()), AtomicBool::new(false));
     let hung = AtomicBool::new(false);
@@ -254,7 +291,16 @@ fn child(these: &[usize], mut each: impl FnMut(usize, f64, bool)) -> (usize, Opt
     let status = lock(&process).wait();
     let well = status.as_ref().is_ok_and(|s| s.success());
     if well {
-        return (these.len(), None);
+        if made == these.len() {
+            return (made, None);
+        }
+        return (
+            made,
+            Some(format!(
+                "worker exited after reporting {made} of {} requested pipelines",
+                these.len()
+            )),
+        );
     }
     let why = if hung.load(Ordering::Relaxed) {
         format!("hung for {} s", LONGEST.as_secs())
@@ -283,4 +329,14 @@ fn make(dir: &Path, these: &str) -> Result<()> {
     // Without what a run's end does (nothing to save, the host's threads).
     let _ = out.flush();
     std::process::exit(0)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn automatic_worker_count_is_capped_for_large_hosts() {
+        assert_eq!(super::automatic_jobs(1), 1);
+        assert_eq!(super::automatic_jobs(4), 2);
+        assert_eq!(super::automatic_jobs(64), super::DEFAULT_MAX_JOBS);
+    }
 }
