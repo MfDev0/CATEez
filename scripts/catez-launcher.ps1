@@ -1,11 +1,12 @@
 $ErrorActionPreference = 'Stop'
-$launcherVersion = 'v1'
+$launcherVersion = 'v1.1'
 $repoApi = 'https://api.github.com/repos/MfDev0/CATEez/releases/latest'
 $installRoot = Join-Path $env:LOCALAPPDATA 'CATEez\projects'
+$pathFile = Join-Path $env:LOCALAPPDATA 'CATEez\game-exe-path.txt'
 $tempRoot = $null
 
 try {
-    Write-Host 'CATEez game launcher v1'
+    Write-Host ('CATEez game launcher {0}' -f $launcherVersion)
     Write-Host 'Checking the latest CATEez project release...'
     $release = Invoke-RestMethod -Uri $repoApi -Headers @{ 'User-Agent' = 'CATEez-Launcher' }
     $projectVersion = [string]$release.tag_name
@@ -17,7 +18,6 @@ try {
         throw ('The project package for {0} is not ready yet. Try again shortly.' -f $projectVersion)
     }
 
-    Write-Host ('Launcher version: {0}' -f $launcherVersion)
     Write-Host ('Latest repository version: {0}' -f $projectVersion)
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
     $projectRoot = Join-Path $installRoot $projectVersion
@@ -56,26 +56,75 @@ try {
         Write-Host ('Project version already installed: {0}' -f $installedVersion)
     }
 
-    Write-Host ''
-    Write-Host 'Paste the full path to your game dump executable.'
-    Write-Host 'Example: D:\Games\MyDump\game_scarlett_master.exe'
-    $gamePath = (Read-Host 'Game dump EXE path').Trim()
-    if ($gamePath.Length -ge 2 -and $gamePath[0] -eq '"' -and $gamePath[$gamePath.Length - 1] -eq '"') {
-        $gamePath = $gamePath.Substring(1, $gamePath.Length - 2)
+    $gamePath = ''
+    if (Test-Path -LiteralPath $pathFile -PathType Leaf) {
+        $savedPath = [IO.File]::ReadAllText($pathFile).Trim()
+        if ($savedPath -and (Test-Path -LiteralPath $savedPath -PathType Leaf)) {
+            Write-Host ''
+            Write-Host ('Saved game EXE: {0}' -f $savedPath)
+            $choice = (Read-Host 'Press Enter to use it, or C then Enter to change the path').Trim()
+            if ($choice -notmatch '^(?i)c$') { $gamePath = $savedPath }
+        } else {
+            Write-Host 'The saved game path is no longer valid; enter the new path.'
+        }
     }
-    if ($gamePath.Length -ge 2 -and $gamePath[0] -eq "'" -and $gamePath[$gamePath.Length - 1] -eq "'") {
-        $gamePath = $gamePath.Substring(1, $gamePath.Length - 2)
-    }
-    if ([IO.Path]::GetExtension($gamePath) -ine '.exe' -or
-        -not (Test-Path -LiteralPath $gamePath -PathType Leaf)) {
-        throw 'That path is not an existing game .exe file.'
+    if (-not $gamePath) {
+        Write-Host ''
+        Write-Host 'Paste the full path to your game dump executable.'
+        Write-Host 'Example: D:\Games\MyDump\game_scarlett_master.exe'
+        $gamePath = (Read-Host 'Game dump EXE path').Trim()
+        if ($gamePath.Length -ge 2 -and $gamePath[0] -eq '"' -and $gamePath[$gamePath.Length - 1] -eq '"') {
+            $gamePath = $gamePath.Substring(1, $gamePath.Length - 2)
+        }
+        if ($gamePath.Length -ge 2 -and $gamePath[0] -eq "'" -and $gamePath[$gamePath.Length - 1] -eq "'") {
+            $gamePath = $gamePath.Substring(1, $gamePath.Length - 2)
+        }
+        if ([IO.Path]::GetExtension($gamePath) -ine '.exe' -or
+            -not (Test-Path -LiteralPath $gamePath -PathType Leaf)) {
+            throw 'That path is not an existing game .exe file.'
+        }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $pathFile) -Force | Out-Null
+        [IO.File]::WriteAllText($pathFile, $gamePath, [System.Text.UTF8Encoding]::new($false))
+        Write-Host 'Game EXE path saved. Press C at the next prompt to change it.'
     }
 
-    Write-Host ('Starting CATEez {0} with the selected game dump...' -f $projectVersion)
+    $streamlineDir = Join-Path $env:LOCALAPPDATA 'victory\nvidia-sdk\Streamline\bin\x64'
+    if ($env:VICTORY_STREAMLINE_DIR -and (Test-Path -LiteralPath (Join-Path $env:VICTORY_STREAMLINE_DIR 'sl.interposer.dll'))) {
+        $streamlineDir = $env:VICTORY_STREAMLINE_DIR
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll'))) {
+        Write-Host ''
+        Write-Host 'DLSS Performance and NVIDIA frame generation need NVIDIA Streamline files (~70 MB).'
+        Write-Host 'They will be downloaded from NVIDIA and kept under your LocalAppData folder.'
+        $answer = (Read-Host 'Download the NVIDIA files now? [Y/n]').Trim()
+        if (-not $answer -or $answer -notmatch '^(?i)n') {
+            Write-Host 'Downloading NVIDIA files from the project command...'
+            $savedPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & $engine get-dlss
+                $downloadExit = $LASTEXITCODE
+            } finally { $ErrorActionPreference = $savedPreference }
+            if ($downloadExit -eq 0 -and (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll'))) {
+                Write-Host 'NVIDIA files are ready.'
+            } else {
+                Write-Host 'NVIDIA files were not installed; the game will start without DLSS/frame generation.'
+            }
+        } else {
+            Write-Host 'Continuing without NVIDIA files; DLSS/frame generation will be unavailable.'
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll')) {
+        $env:VICTORY_STREAMLINE_DIR = $streamlineDir
+    }
+
+    Write-Host ''
+    Write-Host ('Starting {0}: Series S profile, DLSS Performance, 3x requested, shaders/pipelines preloaded.' -f $projectVersion)
+    Write-Host 'RTX 40-series cards support up to 2x DLSS frame generation; the project will use the card limit.'
     $savedPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $runner -Exe $gamePath
+        & $runner -Exe $gamePath -SeriesS -Dlss performance -FrameGen -FrameGenX 3 -Preload
     } finally {
         $ErrorActionPreference = $savedPreference
     }

@@ -300,6 +300,18 @@ delete that file to go back to them. Full screen: start the game, then run
 - [docs/asset-policy.md](docs/asset-policy.md): what may and may not be in this
   repository.
 
+## CATEez Windows launcher
+
+Download `CATEez-Launcher-v1.1.exe` from the [CATEez v1.1 release](https://github.com/MfDev0/CATEez/releases/tag/v1.1).
+It downloads the matching project package, remembers your game dump EXE path under `%LOCALAPPDATA%\CATEez`,
+and lets you press C at the saved-path prompt to change it. Its default launch is Series S, DLSS Performance,
+3x requested frame generation, and shader/pipeline preload. RTX 40-series cards are limited to 2x DLSS frame
+generation by the project/driver. F1 opens the settings menu; use arrows and Enter.
+
+At the end of a run, a report ZIP is saved under `Downloads\VIctory-reports` with the full run log,
+shader/pipeline lines and text pipeline lists, recent crash logs, settings, and system details. Shader preloading
+can take a while the first time; the project's cache keeps progress for later runs.
+
 ## Credits
 
 A tree of other people's work with a little on top; the history is kept.

@@ -185,4 +185,8 @@ try {
 finally { Pop-Location }
 Push-Location $repo
 try { & $victory run $Exe --console $console --execute 2>&1 | ForEach-Object { $line = "$_"; $writer.WriteLine($line); $line } }
-finally { Pop-Location; $writer.Dispose() }
+finally {
+    Pop-Location
+    $writer.Dispose()
+    try { & (Join-Path $PSScriptRoot 'make-report.ps1') -Log $log } catch {}
+}
