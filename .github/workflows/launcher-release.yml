@@ -1,0 +1,49 @@
+name: Build CATEez launcher release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Build the project engine
+        run: cargo build --release --locked -p victory
+      - name: Package the repository and engine
+        shell: powershell
+        run: |
+          $sourceZip = Join-Path $env:RUNNER_TEMP 'catez-source.zip'
+          $packageDir = Join-Path $env:RUNNER_TEMP 'catez-package'
+          $projectZip = Join-Path $env:RUNNER_TEMP 'CATEez-project.zip'
+          git archive --format=zip --output=$sourceZip HEAD
+          Expand-Archive -LiteralPath $sourceZip -DestinationPath $packageDir -Force
+          $engineDir = Join-Path $packageDir 'target\release'
+          New-Item -ItemType Directory -Path $engineDir -Force | Out-Null
+          Copy-Item -LiteralPath 'target\release\victory.exe' -Destination $engineDir -Force
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::CreateFromDirectory($packageDir, $projectZip, [IO.Compression.CompressionLevel]::Optimal, $false)
+      - name: Build the console launcher EXE
+        shell: powershell
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Scope CurrentUser -Force -AllowClobber
+          Import-Module ps2exe
+          $launcherExe = Join-Path $env:RUNNER_TEMP 'CATEez-Launcher-v1.exe'
+          Invoke-PS2EXE -inputFile 'scripts\catez-launcher.ps1' -outputFile $launcherExe -title 'CATEez Launcher' -description 'Downloads and launches VIctory-NVIDIA for your game dump' -company 'CATEez' -product 'CATEez Launcher' -version '1.0.0.0'
+      - name: Attach the launcher and project package to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $launcherExe = Join-Path $env:RUNNER_TEMP 'CATEez-Launcher-v1.exe'
+          $projectZip = Join-Path $env:RUNNER_TEMP 'CATEez-project.zip'
+          gh release upload "$env:GITHUB_REF_NAME" $launcherExe $projectZip --clobber
