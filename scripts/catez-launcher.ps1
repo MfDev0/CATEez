@@ -3,6 +3,7 @@ $launcherVersion = 'v1'
 $repoApi = 'https://api.github.com/repos/MfDev0/CATEez/releases/latest'
 $installRoot = Join-Path $env:LOCALAPPDATA 'CATEez\projects'
 $pathFile = Join-Path $env:LOCALAPPDATA 'CATEez\game-exe-path.txt'
+$nvidiaSkipFile = Join-Path $env:LOCALAPPDATA 'CATEez\nvidia-download-skipped.txt'
 $activeProjectFile = Join-Path $env:LOCALAPPDATA 'CATEez\active-project-path.txt'
 $tempRoot = $null
 $forceProjectUpdate = $false
@@ -187,25 +188,32 @@ exit 1
         $streamlineDir = $env:VICTORY_STREAMLINE_DIR
     }
     if (-not (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll'))) {
-        Write-Host ''
-        Write-Host 'DLSS Performance and NVIDIA frame generation need NVIDIA Streamline files (~70 MB).'
-        Write-Host 'They will be downloaded from NVIDIA and kept under your LocalAppData folder.'
-        $answer = (Read-Host 'Download the NVIDIA files now? [Y/n]').Trim()
-        if (-not $answer -or $answer -notmatch '^(?i)n') {
-            Write-Host 'Downloading NVIDIA files from the project command...'
-            $savedPreference = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            try {
-                & $engine get-dlss
-                $downloadExit = $LASTEXITCODE
-            } finally { $ErrorActionPreference = $savedPreference }
-            if ($downloadExit -eq 0 -and (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll'))) {
-                Write-Host 'NVIDIA files are ready.'
-            } else {
-                Write-Host 'NVIDIA files were not installed; the game will start without DLSS/frame generation.'
-            }
+        if (Test-Path -LiteralPath $nvidiaSkipFile -PathType Leaf) {
+            Write-Host 'NVIDIA files were previously skipped; continuing without DLSS and frame generation.'
+            Write-Host 'Delete the saved skip choice under %LOCALAPPDATA%\CATEez to be asked again.'
         } else {
-            Write-Host 'Continuing without NVIDIA files; DLSS/frame generation will be unavailable.'
+            Write-Host ''
+            Write-Host 'DLSS Performance and NVIDIA frame generation need NVIDIA Streamline files (~70 MB).'
+            Write-Host 'They will be downloaded from NVIDIA and kept under your LocalAppData folder.'
+            $answer = (Read-Host 'Download the NVIDIA files now? [Y/n]').Trim()
+            if (-not $answer -or $answer -notmatch '^(?i)n') {
+                Write-Host 'Downloading the NVIDIA files from the project command...'
+                $savedPreference = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    & $engine get-dlss
+                    $downloadExit = $LASTEXITCODE
+                } finally { $ErrorActionPreference = $savedPreference }
+                if ($downloadExit -eq 0 -and (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll'))) {
+                    Write-Host 'NVIDIA files are ready.'
+                } else {
+                    Write-Host 'NVIDIA files were not installed; the game will start without DLSS/frame generation.'
+                }
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $nvidiaSkipFile) -Force | Out-Null
+                [IO.File]::WriteAllText($nvidiaSkipFile, 'skip', [System.Text.UTF8Encoding]::new($false))
+                Write-Host 'Continuing without NVIDIA files; the game will run without DLSS/frame generation.'
+            }
         }
     }
     if (Test-Path -LiteralPath (Join-Path $streamlineDir 'sl.interposer.dll')) {
@@ -213,12 +221,12 @@ exit 1
     }
 
     Write-Host ''
-    Write-Host ('Starting {0}: Series S profile, DLSS Performance, 3x requested, shaders/pipelines preloaded.' -f $projectVersion)
+    Write-Host ('Starting {0}: Series S profile, DLSS Performance, 3x requested. Pipelines compile as the game needs them.' -f $projectVersion)
     Write-Host 'RTX 40-series cards support up to 2x DLSS frame generation; the project will use the card limit.'
     $savedPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $runner -Exe $gamePath -SeriesS -Dlss performance -FrameGen -FrameGenX 3 -Preload
+        & $runner -Exe $gamePath -SeriesS -Dlss performance -FrameGen -FrameGenX 3
     } finally {
         $ErrorActionPreference = $savedPreference
     }

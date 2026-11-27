@@ -305,19 +305,17 @@ delete that file to go back to them. Full screen: start the game, then run
 Download `CATEez-Launcher-v1.exe` from the [CATEez v1 release](https://github.com/MfDev0/CATEez/releases/tag/v1).
 Press **U** at startup to refresh the v1 project package and replace this EXE when its published
 file has changed; the release and launcher filename stay `v1`. It remembers your game dump EXE path under `%LOCALAPPDATA%\CATEez`,
-and lets you press C at the saved-path prompt to change it. Its default launch is Series S, DLSS Performance,
-3x requested frame generation, and shader/pipeline preload. RTX 40-series cards are limited to 2x DLSS frame
-generation by the project/driver. F1 opens the settings menu; use arrows and Enter.
+and lets you press C at the saved-path prompt to change it. On first setup, it offers to download NVIDIA's Streamline files;
+if you decline, that choice is remembered and the game still starts without DLSS/frame generation. The default launch is
+Series S, DLSS Performance and 3x requested frame generation; RTX 40-series cards are limited to 2x DLSS frame
+generation by the project/driver. It starts the game directly instead of prebuilding every pipeline. F1 opens the
+settings menu; use arrows and Enter.
 
-At the end of a run, a report ZIP is saved under `Downloads\VIctory-reports` with the full run log,
-shader/pipeline lines and text pipeline lists, recent crash logs, settings, and system details. The first
-complete pipeline warm-up can be very long: it asks the graphics driver to build every recorded pipeline.
-Work is saved after each completed pipeline and resumes when interrupted; failed worker batches are retried on
-the next preload instead of being treated as completed. Pipeline workers are capped at four by default to
-reduce driver/compiler memory pressure; set `VICTORY_WARM_JOBS` to override this, or use `victory warm --jobs`.
-Completed pipelines are skipped for the same build, driver, and executable path. Project updates keep a stable
-install path so a launcher-only update does not needlessly invalidate that work. A new translator build or
-graphics driver can still require a fresh warm-up.
+At the end of a run, a report ZIP is saved under `Downloads\\VIctory-reports` with the full run log,
+shader/pipeline lines and text pipeline lists, recent crash logs, settings, and system details. On the first run,
+the graphics driver compiles pipelines as the game needs them, so expect some stutter; subsequent runs can load
+those pipelines from the cache. Exhaustive `victory preload` remains available for users who explicitly want it,
+but can take a very long time and is not part of the launcher's default path.
 
 ## Credits
 
