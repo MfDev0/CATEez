@@ -393,6 +393,29 @@ pub fn run(
     Ok(())
 }
 
+/// Skip known texture, media, and metadata packs that cannot contain shader containers.
+fn may_hold_shaders(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        None => true,
+        Some(ext) => !matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "ttpf"
+                | "png"
+                | "jpg"
+                | "jpeg"
+                | "dds"
+                | "bik"
+                | "bk2"
+                | "wem"
+                | "bnk"
+                | "xml"
+                | "pri"
+                | "config"
+                | "alignmentchunk"
+        ),
+    }
+}
+
 /// Every shader found into the cache runs translate from.
 pub fn precompile(paths: Vec<PathBuf>, jobs: Option<usize>) -> Result<()> {
     let cfg = victory_core::Config::load()?;
@@ -406,7 +429,10 @@ pub fn precompile(paths: Vec<PathBuf>, jobs: Option<usize>) -> Result<()> {
     let failed = Mutex::new(BTreeMap::<String, (usize, String)>::new());
     for root in &paths {
         for entry in walkdir::WalkDir::new(root).into_iter().filter_map(Result::ok) {
-            if !entry.file_type().is_file() || entry.metadata().map_or(0, |m| m.len()) > MAX_FILE {
+            if !entry.file_type().is_file()
+                || !may_hold_shaders(entry.path())
+                || entry.metadata().map_or(0, |m| m.len()) > MAX_FILE
+            {
                 continue;
             }
             let Ok(data) = std::fs::read(entry.path()) else {
@@ -943,6 +969,23 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn precompile_skips_known_non_shader_files_but_keeps_shader_pack_types() {
+        for name in [
+            "textures.TTPF",
+            "image.png",
+            "image.jpeg",
+            "movie.bik",
+            "sound.wem",
+            "metadata.alignmentchunk",
+        ] {
+            assert!(!super::may_hold_shaders(std::path::Path::new(name)), "{name}");
+        }
+        for name in ["shaders.pak", "content.bin", "extensionless", "shader.xbc"] {
+            assert!(super::may_hold_shaders(std::path::Path::new(name)), "{name}");
+        }
+    }
+
     /// Shader dumps are game-derived, so a dump directory in the repo is refused.
     #[test]
     fn emit_dump_inside_repo_is_refused() {

@@ -103,7 +103,12 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
                                 println!("{count} of {}, {:.0} s", all.len(), began.elapsed().as_secs_f64());
                             }
                             drop(state);
-                            let _ = writeln!(lock(&done_out), "{fingerprint} {}", keys[n]);
+                            // A pipeline omitted by this run's settings or refused by the
+                            // host was not warmed; leave it eligible for a later run with
+                            // different settings or a compatible host.
+                            if there {
+                                let _ = writeln!(lock(&done_out), "{fingerprint} {}", keys[n]);
+                            }
                         });
                         rest = &rest[made.min(rest.len())..];
                         match (ended, rest.split_first()) {
