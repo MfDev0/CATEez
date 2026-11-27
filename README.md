@@ -302,8 +302,9 @@ delete that file to go back to them. Full screen: start the game, then run
 
 ## CATEez Windows launcher
 
-Download `CATEez-Launcher-v1.1.exe` from the [CATEez v1.1 release](https://github.com/MfDev0/CATEez/releases/tag/v1.1).
-It downloads the matching project package, remembers your game dump EXE path under `%LOCALAPPDATA%\CATEez`,
+Download `CATEez-Launcher-v1.2.exe` from the [CATEez v1.2 release](https://github.com/MfDev0/CATEez/releases/tag/v1.2).
+Press **U** at startup to refresh the latest project package and replace the launcher with a newer
+published EXE when one is available. It remembers your game dump EXE path under `%LOCALAPPDATA%\CATEez`,
 and lets you press C at the saved-path prompt to change it. Its default launch is Series S, DLSS Performance,
 3x requested frame generation, and shader/pipeline preload. RTX 40-series cards are limited to 2x DLSS frame
 generation by the project/driver. F1 opens the settings menu; use arrows and Enter.

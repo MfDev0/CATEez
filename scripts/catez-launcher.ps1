@@ -1,9 +1,11 @@
 $ErrorActionPreference = 'Stop'
-$launcherVersion = 'v1.1'
+$launcherVersion = 'v1.2'
 $repoApi = 'https://api.github.com/repos/MfDev0/CATEez/releases/latest'
 $installRoot = Join-Path $env:LOCALAPPDATA 'CATEez\projects'
 $pathFile = Join-Path $env:LOCALAPPDATA 'CATEez\game-exe-path.txt'
 $tempRoot = $null
+$forceProjectUpdate = $false
+$exitForUpdate = $false
 
 try {
     Write-Host ('CATEez game launcher {0}' -f $launcherVersion)
@@ -19,6 +21,72 @@ try {
     }
 
     Write-Host ('Latest repository version: {0}' -f $projectVersion)
+    Write-Host 'Press U then Enter to refresh the project files and update this launcher if a newer EXE is published.'
+    $updateChoice = (Read-Host 'Press U to update, or Enter to continue').Trim()
+    if ($updateChoice -match '^(?i)u$') {
+        $forceProjectUpdate = $true
+        $launcherAssets = @($release.assets | Where-Object { $_.name -match '^CATEez-Launcher-v([0-9]+(?:\.[0-9]+)*)\.exe$' })
+        $newestLauncherAsset = $null
+        $newestLauncherVersion = $null
+        foreach ($asset in $launcherAssets) {
+            if ($asset.name -match '^CATEez-Launcher-v([0-9]+(?:\.[0-9]+)*)\.exe$') {
+                try { $candidateVersion = [version]$Matches[1] } catch { continue }
+                if (-not $newestLauncherVersion -or $candidateVersion -gt $newestLauncherVersion) {
+                    $newestLauncherVersion = $candidateVersion
+                    $newestLauncherAsset = $asset
+                }
+            }
+        }
+        $currentVersion = $null
+        try { $currentVersion = [version]($launcherVersion.TrimStart('v')) } catch { }
+        if ($newestLauncherAsset -and $newestLauncherVersion -and $currentVersion -and $newestLauncherVersion -gt $currentVersion) {
+            $currentExe = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+            if ([IO.Path]::GetExtension($currentExe) -ieq '.exe' -and
+                [IO.Path]::GetFileName($currentExe) -match '^CATEez-Launcher-.*\.exe$') {
+                $updateDir = Join-Path $env:LOCALAPPDATA 'CATEez\updates'
+                New-Item -ItemType Directory -Path $updateDir -Force | Out-Null
+                $stagedExe = Join-Path $updateDir ($newestLauncherAsset.name + '.pending')
+                Write-Host ('Downloading launcher update {0}...' -f $newestLauncherAsset.name)
+                Invoke-WebRequest -Uri ([string]$newestLauncherAsset.browser_download_url) -OutFile $stagedExe -UseBasicParsing
+                if ((Get-Item -LiteralPath $stagedExe).Length -lt 16384) {
+                    throw 'The downloaded launcher update is unexpectedly small.'
+                }
+                $helperPath = Join-Path $env:TEMP ('CATEez-update-{0}.ps1' -f [Guid]::NewGuid().ToString('N'))
+                $helperText = @"
+`$parentId = $PID
+`$staged = '$($stagedExe.Replace("'", "''"))'
+`$target = '$($currentExe.Replace("'", "''"))'
+for (`$i = 0; `$i -lt 120; `$i++) {
+    if (-not (Get-Process -Id `$parentId -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Seconds 1
+}
+if (Get-Process -Id `$parentId -ErrorAction SilentlyContinue) { exit 1 }
+for (`$i = 0; `$i -lt 30; `$i++) {
+    try {
+        Copy-Item -LiteralPath `$staged -Destination `$target -Force -ErrorAction Stop
+        Start-Process -FilePath `$target
+        Remove-Item -LiteralPath `$staged -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath `$PSCommandPath -Force -ErrorAction SilentlyContinue
+        exit 0
+    } catch { Start-Sleep -Seconds 2 }
+}
+Write-Error 'Could not replace the launcher executable.'
+exit 1
+"@
+                [IO.File]::WriteAllText($helperPath, $helperText, [System.Text.UTF8Encoding]::new($false))
+                $powershell = Join-Path $PSHOME 'powershell.exe'
+                if (-not (Test-Path -LiteralPath $powershell)) { $powershell = 'powershell.exe' }
+                Start-Process -FilePath $powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $helperPath)) -WindowStyle Hidden
+                Write-Host 'The latest launcher is downloaded. Closing this window so it can be replaced; the updated EXE will reopen.'
+                $exitForUpdate = $true
+                return
+            } else {
+                Write-Host 'A newer launcher is published, but automatic replacement is available only when running the CATEez Launcher EXE.'
+            }
+        } else {
+            Write-Host 'This launcher is already the latest published version; refreshing the project files anyway.'
+        }
+    }
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
     $projectRoot = Join-Path $installRoot $projectVersion
     $versionFile = Join-Path $projectRoot '.catez-version'
@@ -29,7 +97,7 @@ try {
         $installedVersion = [IO.File]::ReadAllText($versionFile).Trim()
     }
 
-    if ($installedVersion -ne $projectVersion -or
+    if ($forceProjectUpdate -or $installedVersion -ne $projectVersion -or
         -not (Test-Path -LiteralPath $runner -PathType Leaf) -or
         -not (Test-Path -LiteralPath $engine -PathType Leaf)) {
         Write-Host ('Downloading CATEez project {0}...' -f $projectVersion)
@@ -135,6 +203,8 @@ try {
     if ($tempRoot -and (Test-Path -LiteralPath $tempRoot)) {
         try { Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction Stop } catch { }
     }
-    Write-Host ''
-    try { Read-Host 'Press Enter to close' | Out-Null } catch { }
+    if (-not $exitForUpdate) {
+        Write-Host ''
+        try { Read-Host 'Press Enter to close' | Out-Null } catch { }
+    }
 }
